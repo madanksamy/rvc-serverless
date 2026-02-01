@@ -172,9 +172,16 @@ def handler(job):
         try:
             start = time.time()
 
+            # Verify input file was written correctly
+            input_size = os.path.getsize(input_path)
+            print(f"Input file: {input_path} ({input_size} bytes)")
+
             # Get converter and run
             conv = get_converter()
-            conv.convert_audio(
+            print(f"Running conversion with model: {model_path}")
+            print(f"Index: {index_path}, pitch: {pitch}, f0: {f0_method}")
+
+            result = conv.convert_audio(
                 audio_input_path=input_path,
                 audio_output_path=output_path,
                 model_path=model_path,
@@ -192,8 +199,22 @@ def handler(job):
                 export_format='WAV'
             )
 
+            print(f"convert_audio returned: {result}")
+
             duration_ms = int((time.time() - start) * 1000)
             print(f"Conversion done in {duration_ms}ms")
+
+            # Check if output file exists
+            if not os.path.exists(output_path):
+                # Sometimes Applio returns the path instead of writing to our path
+                if result and isinstance(result, str) and os.path.exists(result):
+                    output_path = result
+                    print(f"Using returned path: {output_path}")
+                else:
+                    return {"error": f"Output file not created. convert_audio returned: {result}"}
+
+            output_size = os.path.getsize(output_path)
+            print(f"Output file: {output_path} ({output_size} bytes)")
 
             # Read and encode output
             with open(output_path, "rb") as f:
