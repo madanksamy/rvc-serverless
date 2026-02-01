@@ -18,8 +18,11 @@ RUN git clone --depth 1 https://github.com/IAHispano/Applio.git /workspace/Appli
 # Install Applio requirements (skip torch as it's already in base image)
 WORKDIR /workspace/Applio
 RUN pip install --upgrade pip && \
-    grep -v "^torch" requirements.txt | grep -v "^torchaudio" | grep -v "^torchvision" > requirements_no_torch.txt && \
+    grep -v "^torch==" requirements.txt | grep -v "^torchaudio==" | grep -v "^torchvision==" > requirements_no_torch.txt && \
     pip install --no-cache-dir -r requirements_no_torch.txt || true
+
+# Install torchcrepe and other missing dependencies
+RUN pip install --no-cache-dir torchcrepe praat-parselmouth pyworld
 
 # Install compatible PyTorch with CUDA for this base image
 RUN pip install torch==2.1.0 torchaudio==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cu118 || true
