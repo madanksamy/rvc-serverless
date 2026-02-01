@@ -28,7 +28,7 @@ RUN pip install --no-cache-dir torchcrepe praat-parselmouth pyworld
 RUN python -c "import torch; print(f'PyTorch: {torch.__version__}, CUDA: {torch.cuda.is_available()}')"
 
 # Download RVC prerequisite models (hubert, rmvpe, fcpe) - this is critical!
-RUN python -c "import sys; sys.path.insert(0, '/workspace/Applio'); from rvc.lib.tools.prerequisites_download import prequisites_download_pipeline; prequisites_download_pipeline(True, True, True, True)"
+RUN python -c "import sys; sys.path.insert(0, '/workspace/Applio'); from rvc.lib.tools.prerequisites_download import prequisites_download_pipeline; prequisites_download_pipeline(True, True, False)"
 
 # Verify prerequisites were downloaded
 RUN ls -la /workspace/Applio/rvc/models/predictors/ && \

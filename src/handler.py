@@ -47,7 +47,7 @@ def setup_environment():
         try:
             # Import and run prerequisite download
             from rvc.lib.tools.prerequisites_download import prequisites_download_pipeline
-            prequisites_download_pipeline(True, True, True, True)
+            prequisites_download_pipeline(True, True, False)
             print("Prerequisites downloaded!", flush=True)
         except Exception as e:
             print(f"Warning: prerequisite download failed: {e}", flush=True)
