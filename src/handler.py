@@ -13,7 +13,7 @@ import subprocess
 import traceback
 from pathlib import Path
 
-print("=== RVC Serverless Handler Starting ===")
+print("=== RVC Serverless Handler Starting ===", flush=True)
 
 # Setup paths
 WORKSPACE = Path("/workspace")
@@ -22,45 +22,38 @@ MODELS_DIR = WORKSPACE / "models"
 
 def setup_environment():
     """One-time setup of Applio and models."""
-    print("Setting up environment...")
+    print("Setting up environment...", flush=True)
 
     # Create directories
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Clone Applio if not present
-    if not APPLIO_PATH.exists():
-        print("Cloning Applio...")
-        subprocess.run([
-            "git", "clone", "--depth", "1",
-            "https://github.com/IAHispano/Applio.git",
-            str(APPLIO_PATH)
-        ], check=True, capture_output=True)
-
-        # Install requirements
-        print("Installing Applio requirements...")
-        subprocess.run([
-            sys.executable, "-m", "pip", "install", "-q",
-            "-r", str(APPLIO_PATH / "requirements.txt")
-        ], check=True, capture_output=True)
-
-        # Download prerequisite models
-        print("Downloading RVC models (hubert, rmvpe, fcpe)...")
-        os.chdir(str(APPLIO_PATH))
-        try:
-            subprocess.run([
-                sys.executable, "-c",
-                "from rvc.lib.tools.prerequisites_download import prequisites_download_pipeline; "
-                "prequisites_download_pipeline(True, True, True, True)"
-            ], check=True, capture_output=True, timeout=300)
-        except:
-            print("Warning: Some prerequisite models may not have downloaded")
-
-    # Add Applio to path
+    # Add Applio to path FIRST
     if str(APPLIO_PATH) not in sys.path:
         sys.path.insert(0, str(APPLIO_PATH))
     os.chdir(str(APPLIO_PATH))
 
-    print("Environment ready!")
+    # Check if prerequisites exist
+    hubert_path = APPLIO_PATH / "rvc" / "models" / "pretraineds" / "embedders" / "contentvec"
+    rmvpe_path = APPLIO_PATH / "rvc" / "models" / "predictors" / "rmvpe.pt"
+
+    print(f"Checking prerequisites...", flush=True)
+    print(f"  Applio exists: {APPLIO_PATH.exists()}", flush=True)
+    print(f"  Hubert dir exists: {hubert_path.exists()}", flush=True)
+    print(f"  RMVPE exists: {rmvpe_path.exists()}", flush=True)
+
+    # Always try to download prerequisites if missing
+    if not rmvpe_path.exists():
+        print("Downloading RVC prerequisite models...", flush=True)
+        try:
+            # Import and run prerequisite download
+            from rvc.lib.tools.prerequisites_download import prequisites_download_pipeline
+            prequisites_download_pipeline(True, True, True, True)
+            print("Prerequisites downloaded!", flush=True)
+        except Exception as e:
+            print(f"Warning: prerequisite download failed: {e}", flush=True)
+            traceback.print_exc()
+
+    print("Environment ready!", flush=True)
 
 def download_model_from_s3(model_id: str) -> tuple:
     """Download model from S3 if not cached."""
@@ -70,10 +63,10 @@ def download_model_from_s3(model_id: str) -> tuple:
     index_path = MODELS_DIR / f"{model_id}.index"
 
     if model_path.exists():
-        print(f"Model {model_id} cached locally")
+        print(f"Model {model_id} cached locally", flush=True)
         return str(model_path), str(index_path) if index_path.exists() else ""
 
-    print(f"Downloading {model_id} from S3...")
+    print(f"Downloading {model_id} from S3...", flush=True)
 
     s3 = boto3.client('s3',
         aws_access_key_id=os.environ.get('AWS_ACCESS_KEY_ID'),
@@ -87,16 +80,17 @@ def download_model_from_s3(model_id: str) -> tuple:
     for version in ['v2', 'v1']:
         try:
             s3.download_file(bucket, f"models/{version}/{model_id}.pth", str(model_path))
-            print(f"Downloaded models/{version}/{model_id}.pth")
+            print(f"Downloaded models/{version}/{model_id}.pth", flush=True)
 
             try:
                 s3.download_file(bucket, f"models/{version}/{model_id}.index", str(index_path))
-                print(f"Downloaded index file")
+                print(f"Downloaded index file", flush=True)
             except:
                 pass
 
             return str(model_path), str(index_path) if index_path.exists() else ""
         except Exception as e:
+            print(f"  Not found in {version}: {e}", flush=True)
             continue
 
     raise Exception(f"Model {model_id} not found in S3")
@@ -109,33 +103,15 @@ def get_converter():
     global _converter
     if _converter is None:
         setup_environment()
-        print("Loading VoiceConverter...")
+        print("Loading VoiceConverter...", flush=True)
         from rvc.infer.infer import VoiceConverter
         _converter = VoiceConverter()
-        print(f"Converter ready on: {_converter.config.device}")
+        print(f"Converter ready on device: {_converter.config.device}", flush=True)
     return _converter
 
 def handler(job):
     """
     RunPod handler for RVC voice conversion.
-
-    Input:
-    {
-        "audio_base64": "base64 encoded WAV/MP3",
-        "model_id": "spb" | "kj_yesudas" | "s_janaki" | etc,
-        "pitch": 0,           # -12 to 12
-        "index_ratio": 0.75,  # 0 to 1
-        "f0_method": "rmvpe", # rmvpe, fcpe, crepe
-        "protect": 0.33,      # 0 to 0.5
-        "rms_mix_rate": 0.25  # 0 to 1
-    }
-
-    Output:
-    {
-        "audio_base64": "converted audio base64",
-        "duration_ms": 1234,
-        "model_id": "spb"
-    }
     """
     try:
         inp = job.get("input", {})
@@ -157,31 +133,43 @@ def handler(job):
         if f0_method not in ["rmvpe", "fcpe", "crepe"]:
             f0_method = "rmvpe"
 
-        print(f"Job: model={model_id}, pitch={pitch}, f0={f0_method}")
+        print(f"Job: model={model_id}, pitch={pitch}, f0={f0_method}", flush=True)
 
         # Download model from S3
         model_path, index_path = download_model_from_s3(model_id)
 
+        # Verify model file exists and is valid
+        if not os.path.exists(model_path):
+            return {"error": f"Model file not found: {model_path}"}
+
+        model_size = os.path.getsize(model_path)
+        print(f"Model file: {model_path} ({model_size} bytes)", flush=True)
+
         # Create temp files
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
             input_path = f.name
-            f.write(base64.b64decode(audio_b64))
+            audio_data = base64.b64decode(audio_b64)
+            f.write(audio_data)
 
-        output_path = tempfile.mktemp(suffix=".wav")
+        # Use a fixed output path in /tmp
+        output_path = f"/tmp/rvc_output_{job.get('id', 'unknown')}.wav"
 
         try:
             start = time.time()
 
             # Verify input file was written correctly
             input_size = os.path.getsize(input_path)
-            print(f"Input file: {input_path} ({input_size} bytes)")
+            print(f"Input file: {input_path} ({input_size} bytes)", flush=True)
 
             # Get converter and run
             conv = get_converter()
-            print(f"Running conversion with model: {model_path}")
-            print(f"Index: {index_path}, pitch: {pitch}, f0: {f0_method}")
+            print(f"Running conversion...", flush=True)
+            print(f"  Model: {model_path}", flush=True)
+            print(f"  Index: {index_path}", flush=True)
+            print(f"  Output: {output_path}", flush=True)
 
-            result = conv.convert_audio(
+            # Call convert_audio
+            conv.convert_audio(
                 audio_input_path=input_path,
                 audio_output_path=output_path,
                 model_path=model_path,
@@ -199,22 +187,27 @@ def handler(job):
                 export_format='WAV'
             )
 
-            print(f"convert_audio returned: {result}")
-
             duration_ms = int((time.time() - start) * 1000)
-            print(f"Conversion done in {duration_ms}ms")
+            print(f"Conversion call completed in {duration_ms}ms", flush=True)
+
+            # List /tmp to see what was created
+            print(f"Files in /tmp:", flush=True)
+            for f in os.listdir("/tmp"):
+                if f.endswith('.wav'):
+                    print(f"  {f}", flush=True)
 
             # Check if output file exists
             if not os.path.exists(output_path):
-                # Sometimes Applio returns the path instead of writing to our path
-                if result and isinstance(result, str) and os.path.exists(result):
-                    output_path = result
-                    print(f"Using returned path: {output_path}")
-                else:
-                    return {"error": f"Output file not created. convert_audio returned: {result}"}
+                # Try to find any output file
+                possible_outputs = [f for f in os.listdir("/tmp") if f.endswith('.wav') and 'output' in f.lower()]
+                print(f"Possible outputs: {possible_outputs}", flush=True)
+                return {"error": f"Output file not created at {output_path}"}
 
             output_size = os.path.getsize(output_path)
-            print(f"Output file: {output_path} ({output_size} bytes)")
+            print(f"Output file: {output_path} ({output_size} bytes)", flush=True)
+
+            if output_size == 0:
+                return {"error": "Output file is empty"}
 
             # Read and encode output
             with open(output_path, "rb") as f:
@@ -242,9 +235,10 @@ def handler(job):
                         pass
 
     except Exception as e:
+        print(f"ERROR: {e}", flush=True)
         traceback.print_exc()
         return {"error": str(e)}
 
 # Start the serverless handler
-print("Starting RunPod serverless handler...")
+print("Starting RunPod serverless handler...", flush=True)
 runpod.serverless.start({"handler": handler})

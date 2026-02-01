@@ -19,16 +19,20 @@ RUN git clone --depth 1 https://github.com/IAHispano/Applio.git /workspace/Appli
 WORKDIR /workspace/Applio
 RUN pip install --upgrade pip && \
     grep -v "^torch==" requirements.txt | grep -v "^torchaudio==" | grep -v "^torchvision==" > requirements_no_torch.txt && \
-    pip install --no-cache-dir -r requirements_no_torch.txt || true
+    pip install --no-cache-dir -r requirements_no_torch.txt || echo "Some deps failed, continuing..."
 
 # Install torchcrepe and other missing dependencies
 RUN pip install --no-cache-dir torchcrepe praat-parselmouth pyworld
 
-# Install compatible PyTorch with CUDA for this base image
-RUN pip install torch==2.1.0 torchaudio==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cu118 || true
+# Ensure PyTorch works with CUDA
+RUN python -c "import torch; print(f'PyTorch: {torch.__version__}, CUDA: {torch.cuda.is_available()}')"
 
-# Download RVC prerequisite models (hubert, rmvpe, fcpe)
-RUN python -c "from rvc.lib.tools.prerequisites_download import prequisites_download_pipeline; prequisites_download_pipeline(True, True, True, True)" || true
+# Download RVC prerequisite models (hubert, rmvpe, fcpe) - this is critical!
+RUN python -c "import sys; sys.path.insert(0, '/workspace/Applio'); from rvc.lib.tools.prerequisites_download import prequisites_download_pipeline; prequisites_download_pipeline(True, True, True, True)"
+
+# Verify prerequisites were downloaded
+RUN ls -la /workspace/Applio/rvc/models/predictors/ && \
+    ls -la /workspace/Applio/rvc/models/pretraineds/embedders/
 
 # Install RunPod and AWS SDK
 RUN pip install --no-cache-dir runpod boto3
