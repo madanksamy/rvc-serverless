@@ -160,8 +160,13 @@ def handler(job):
                 region_name=S3_REGION
             )
             s3.upload_file(output_path, S3_BUCKET, s3_key, ExtraArgs={'ContentType': 'audio/wav'})
-            audio_url = f"https://{S3_BUCKET}.s3.{S3_REGION}.amazonaws.com/{s3_key}"
-            print(f"Uploaded to S3: {audio_url}", flush=True)
+            # Generate pre-signed URL (valid for 1 hour)
+            audio_url = s3.generate_presigned_url(
+                'get_object',
+                Params={'Bucket': S3_BUCKET, 'Key': s3_key},
+                ExpiresIn=3600
+            )
+            print(f"Uploaded to S3, presigned URL generated", flush=True)
         except Exception as e:
             print(f"S3 upload failed: {e}, falling back to base64", flush=True)
             audio_url = None
